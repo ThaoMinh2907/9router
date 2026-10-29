@@ -30,10 +30,16 @@ export function getConnectionLabel(connection) {
 }
 
 export function getConnectionQuotaRemaining(connection, quotaData) {
-  const quota = quotaData[connection.id]?.quotas?.[0];
-  if (!quota) return Number.POSITIVE_INFINITY;
-  if (typeof quota.remaining === "number") return quota.remaining;
-  return Number.POSITIVE_INFINITY;
+  const quotas = quotaData[connection.id]?.quotas;
+  if (!quotas || quotas.length === 0) return Number.POSITIVE_INFINITY;
+  
+  // Calculate remaining percentage across valid quotas (find minimum remaining %)
+  const remainings = quotas
+    .map((q) => getRemainingPercentage(q))
+    .filter((val) => typeof val === "number" && Number.isFinite(val));
+    
+  if (remainings.length === 0) return Number.POSITIVE_INFINITY;
+  return Math.min(...remainings);
 }
 
 // Stable group-by-provider: first-seen provider order, original order within group.
@@ -54,7 +60,7 @@ export function sortVisibleConnections(
   providerFilter,
   quotaSortMode,
 ) {
-  if (providerFilter === "codex" && quotaSortMode !== "default") {
+  if (quotaSortMode && quotaSortMode !== "default") {
     return [...connections].sort((a, b) => {
       const remainingA = getConnectionQuotaRemaining(a, quotaData);
       const remainingB = getConnectionQuotaRemaining(b, quotaData);
@@ -63,8 +69,9 @@ export function sortVisibleConnections(
           ? remainingA - remainingB
           : remainingB - remainingA;
       if (remainingDiff !== 0) return remainingDiff;
-      return (getConnectionLabel(a) || "").localeCompare(
-        getConnectionLabel(b) || "",
+      return (
+        (a.provider || "").localeCompare(b.provider || "") ||
+        (getConnectionLabel(a) || "").localeCompare(getConnectionLabel(b) || "")
       );
     });
   }
