@@ -63,6 +63,8 @@ const AUTO_PING_SETTINGS_KEYS = {
   codex: "codexAutoPing",
 };
 
+const VIEW_MODE_STORAGE_KEY = "9router:quota-view-mode";
+
 const AUTO_PING_TOOLTIPS = {
   claude: "When your 5h quota runs out, auto-sends a request the moment it resets so a new window starts right away.",
   codex: "Auto-starts the next 5h Codex window after reset by sending a tiny request. Consumes a small amount of quota.",
@@ -203,6 +205,9 @@ export default function ProviderLimits() {
   const [quotaSortMode, setQuotaSortMode] = useState("default");
   const [quotaVisibility, setQuotaVisibility] = useState({});
   const [expiringFirst, setExpiringFirst] = useState(false);
+  const [viewMode, setViewMode] = useState("grid");
+  const [hasHydratedViewMode, setHasHydratedViewMode] = useState(false);
+  const [collapsedProviders, setCollapsedProviders] = useState({});
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [bulkToggling, setBulkToggling] = useState(false);
   const [page, setPage] = useState(1);
@@ -592,6 +597,12 @@ export default function ProviderLimits() {
     const stored = window.localStorage.getItem(AUTO_REFRESH_STORAGE_KEY);
     setAutoRefresh(stored === null ? true : stored === "true");
     setHasHydratedAutoRefresh(true);
+
+    const storedViewMode = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (storedViewMode && ["grid", "list", "tree"].includes(storedViewMode)) {
+      setViewMode(storedViewMode);
+    }
+    setHasHydratedViewMode(true);
   }, []);
 
   // Persist auto-refresh preference
@@ -599,6 +610,12 @@ export default function ProviderLimits() {
     if (typeof window === "undefined" || !hasHydratedAutoRefresh) return;
     window.localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, String(autoRefresh));
   }, [autoRefresh, hasHydratedAutoRefresh]);
+
+  // Persist view-mode preference
+  useEffect(() => {
+    if (typeof window === "undefined" || !hasHydratedViewMode) return;
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+  }, [viewMode, hasHydratedViewMode]);
 
   // Load auto-ping per-connection configs
   useEffect(() => {
@@ -790,6 +807,35 @@ export default function ProviderLimits() {
       ),
     [connections, quotaData, expiringFirst, providerFilter, quotaSortMode],
   );
+
+  const groupedByProvider = useMemo(() => {
+    const groups = {};
+    for (const conn of sortedConnections) {
+      const p = conn.provider || "other";
+      if (!groups[p]) groups[p] = [];
+      groups[p].push(conn);
+    }
+    return groups;
+  }, [sortedConnections]);
+
+  const toggleProviderCollapse = useCallback((provider) => {
+    setCollapsedProviders((prev) => ({
+      ...prev,
+      [provider]: !prev[provider],
+    }));
+  }, []);
+
+  const expandAllProviders = useCallback(() => {
+    setCollapsedProviders({});
+  }, []);
+
+  const collapseAllProviders = useCallback(() => {
+    const all = {};
+    for (const conn of sortedConnections) {
+      if (conn.provider) all[conn.provider] = true;
+    }
+    setCollapsedProviders(all);
+  }, [sortedConnections]);
 
   // Connection is depleted when any quota entry hit the threshold
   const isConnectionDepleted = (conn) => {
@@ -1104,6 +1150,49 @@ export default function ProviderLimits() {
               refresh
             </span>
           </button>
+
+          {/* View Mode Switcher: Grid, List, Tree */}
+          <div className="flex h-8 items-center rounded-lg border border-black/10 bg-black/[0.02] p-0.5 dark:border-white/10 dark:bg-white/[0.03]">
+            <button
+              type="button"
+              onClick={() => setViewMode("grid")}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                viewMode === "grid"
+                  ? "bg-surface text-primary shadow-xs"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+              title="Grid view"
+              aria-label="Grid view"
+            >
+              <span className="material-symbols-outlined text-[16px]">grid_view</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                viewMode === "list"
+                  ? "bg-surface text-primary shadow-xs"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+              title="List view"
+              aria-label="List view"
+            >
+              <span className="material-symbols-outlined text-[16px]">view_list</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("tree")}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                viewMode === "tree"
+                  ? "bg-surface text-primary shadow-xs"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+              title="Tree view"
+              aria-label="Tree view"
+            >
+              <span className="material-symbols-outlined text-[16px]">account_tree</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1115,8 +1204,8 @@ export default function ProviderLimits() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {sortedConnections.map((conn) => {
+      {(() => {
+        const renderConnectionCard = (conn) => {
           const quota = quotaData[conn.id];
           const isLoading = loading[conn.id];
           const error = errors[conn.id];
@@ -1413,8 +1502,109 @@ export default function ProviderLimits() {
               </div>
             </Card>
           );
-        })}
-      </div>
+        };
+
+        if (viewMode === "list") {
+          return (
+            <div className="flex flex-col gap-2.5">
+              {sortedConnections.map((conn) => renderConnectionCard(conn))}
+            </div>
+          );
+        }
+
+        if (viewMode === "tree") {
+          const providerEntries = Object.entries(groupedByProvider);
+
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-text-muted px-1">
+                <span>
+                  {providerEntries.length} provider{providerEntries.length > 1 ? "s" : ""}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={expandAllProviders}
+                    className="hover:text-text-primary underline text-[11px]"
+                  >
+                    Expand all
+                  </button>
+                  <span>·</span>
+                  <button
+                    type="button"
+                    onClick={collapseAllProviders}
+                    className="hover:text-text-primary underline text-[11px]"
+                  >
+                    Collapse all
+                  </button>
+                </div>
+              </div>
+
+              {providerEntries.map(([provider, providerConns]) => {
+                const isCollapsed = collapsedProviders[provider];
+                const activeCount = providerConns.filter((c) => c.isActive !== false).length;
+
+                return (
+                  <div
+                    key={provider}
+                    className="rounded-2xl border border-black/10 bg-black/[0.01] p-3 dark:border-white/10 dark:bg-white/[0.01]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleProviderCollapse(provider)}
+                      className="flex w-full items-center justify-between gap-3 text-left transition-colors hover:opacity-80"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`material-symbols-outlined text-[20px] text-text-muted transition-transform duration-200 ${
+                            isCollapsed ? "-rotate-90" : "rotate-0"
+                          }`}
+                        >
+                          expand_more
+                        </span>
+                        <div className="w-6 h-6 shrink-0 rounded-md overflow-hidden flex items-center justify-center">
+                          <ProviderIcon
+                            src={`/providers/${provider}.png`}
+                            alt={provider}
+                            size={24}
+                            className="object-contain"
+                            fallbackText={provider.slice(0, 2).toUpperCase()}
+                          />
+                        </div>
+                        <span className="font-semibold text-sm text-text-primary truncate">
+                          {providerLabel(provider)}
+                        </span>
+                        <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-medium text-text-muted dark:bg-white/10">
+                          {providerConns.length} account{providerConns.length > 1 ? "s" : ""}
+                        </span>
+                        {activeCount < providerConns.length && (
+                          <span className="text-[11px] text-text-muted">
+                            ({activeCount} active)
+                          </span>
+                        )}
+                      </div>
+                    </button>
+
+                    {!isCollapsed && (
+                      <div className="mt-3 pl-2 sm:pl-4 border-l-2 border-primary/20 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {providerConns.map((conn) => renderConnectionCard(conn))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {sortedConnections.map((conn) => renderConnectionCard(conn))}
+          </div>
+        );
+      })()}
 
       <div className="rounded-xl border border-black/10 bg-black/[0.02] px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
           <div className="flex flex-wrap items-center justify-between gap-2">
