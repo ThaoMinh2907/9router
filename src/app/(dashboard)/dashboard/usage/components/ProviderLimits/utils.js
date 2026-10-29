@@ -29,11 +29,21 @@ export function getConnectionLabel(connection) {
     || null;
 }
 
-export function getConnectionQuotaRemaining(connection, quotaData) {
+export function getConnectionQuotaRemaining(connection, quotaData, targetModelKey = "all") {
   const quotas = quotaData[connection.id]?.quotas;
   if (!quotas || quotas.length === 0) return Number.POSITIVE_INFINITY;
   
-  // Calculate remaining percentage across valid quotas (find minimum remaining %)
+  // If specific model/quota name selected, match either modelKey or name
+  if (targetModelKey && targetModelKey !== "all") {
+    const matched = quotas.find(
+      (q) => (q.modelKey && q.modelKey === targetModelKey) || (q.name && q.name === targetModelKey)
+    );
+    if (!matched) return Number.POSITIVE_INFINITY;
+    const rem = getRemainingPercentage(matched);
+    return typeof rem === "number" && Number.isFinite(rem) ? rem : Number.POSITIVE_INFINITY;
+  }
+
+  // Otherwise calculate remaining percentage across valid quotas (find minimum remaining %)
   const remainings = quotas
     .map((q) => getRemainingPercentage(q))
     .filter((val) => typeof val === "number" && Number.isFinite(val));
@@ -59,11 +69,20 @@ export function sortVisibleConnections(
   expiringFirst,
   providerFilter,
   quotaSortMode,
+  targetModelKey = "all",
 ) {
   if (quotaSortMode && quotaSortMode !== "default") {
     return [...connections].sort((a, b) => {
-      const remainingA = getConnectionQuotaRemaining(a, quotaData);
-      const remainingB = getConnectionQuotaRemaining(b, quotaData);
+      const remainingA = getConnectionQuotaRemaining(a, quotaData, targetModelKey);
+      const remainingB = getConnectionQuotaRemaining(b, quotaData, targetModelKey);
+
+      // When filtering by a specific model, prioritize accounts that actually have that model
+      const hasA = Number.isFinite(remainingA);
+      const hasB = Number.isFinite(remainingB);
+      if (hasA !== hasB) {
+        return hasA ? -1 : 1;
+      }
+
       const remainingDiff =
         quotaSortMode === "remaining-asc"
           ? remainingA - remainingB

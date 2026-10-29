@@ -203,6 +203,7 @@ export default function ProviderLimits() {
   const [providerOptions, setProviderOptions] = useState([]);
   const [accountFilter, setAccountFilter] = useState("all");
   const [quotaSortMode, setQuotaSortMode] = useState("default");
+  const [quotaSortModel, setQuotaSortModel] = useState("all");
   const [quotaVisibility, setQuotaVisibility] = useState({});
   const [expiringFirst, setExpiringFirst] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
@@ -796,6 +797,23 @@ export default function ProviderLimits() {
     };
   }, [autoRefresh, refreshAll, hasHydratedAutoRefresh]);
 
+  // Dynamically collect available quota / model names from visible connections' quotaData
+  const availableQuotaModels = useMemo(() => {
+    const map = new Map();
+    for (const conn of connections) {
+      if (providerFilter !== "all" && conn.provider !== providerFilter) continue;
+      const quotas = quotaData[conn.id]?.quotas || [];
+      for (const q of quotas) {
+        const key = q.modelKey || q.name;
+        const label = q.name || q.modelKey;
+        if (key && !map.has(key)) {
+          map.set(key, label);
+        }
+      }
+    }
+    return Array.from(map.entries()).map(([key, label]) => ({ key, label }));
+  }, [connections, quotaData, providerFilter]);
+
   const sortedConnections = useMemo(
     () =>
       sortVisibleConnections(
@@ -804,8 +822,9 @@ export default function ProviderLimits() {
         expiringFirst,
         providerFilter,
         quotaSortMode,
+        quotaSortModel,
       ),
-    [connections, quotaData, expiringFirst, providerFilter, quotaSortMode],
+    [connections, quotaData, expiringFirst, providerFilter, quotaSortMode, quotaSortModel],
   );
 
   const groupedByProvider = useMemo(() => {
@@ -1070,6 +1089,23 @@ export default function ProviderLimits() {
               </option>
             ))}
           </select>
+
+          {quotaSortMode !== "default" && availableQuotaModels.length > 0 && (
+            <select
+              value={quotaSortModel}
+              onChange={(event) => setQuotaSortModel(event.target.value)}
+              className="h-8 max-w-[160px] rounded-lg border border-black/10 bg-black/[0.02] px-2 text-xs text-text-primary outline-none transition-colors hover:bg-black/5 dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/10"
+              aria-label="Filter specific model for quota sorting"
+              title="Target model for quota order"
+            >
+              <option value="all">All / Min Quota</option>
+              {availableQuotaModels.map((m) => (
+                <option key={m.key} value={m.key}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          )}
 
           <button
             type="button"
