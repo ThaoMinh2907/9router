@@ -64,6 +64,7 @@ const AUTO_PING_SETTINGS_KEYS = {
 };
 
 const VIEW_MODE_STORAGE_KEY = "9router:quota-view-mode";
+const QUOTA_FILTERS_STORAGE_KEY = "9router:quota-filters";
 
 const AUTO_PING_TOOLTIPS = {
   claude: "When your 5h quota runs out, auto-sends a request the moment it resets so a new window starts right away.",
@@ -208,6 +209,7 @@ export default function ProviderLimits() {
   const [expiringFirst, setExpiringFirst] = useState(false);
   const [viewMode, setViewMode] = useState("grid");
   const [hasHydratedViewMode, setHasHydratedViewMode] = useState(false);
+  const [hasHydratedFilters, setHasHydratedFilters] = useState(false);
   const [collapsedProviders, setCollapsedProviders] = useState({});
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [bulkToggling, setBulkToggling] = useState(false);
@@ -570,6 +572,7 @@ export default function ProviderLimits() {
   }, [refreshingAll, fetchConnections, fetchQuota, page]);
 
   useEffect(() => {
+    if (!hasHydratedFilters) return;
     const initializeData = async () => {
       setConnectionsLoading(true);
       const visibleConnections = await fetchConnections(page);
@@ -591,7 +594,7 @@ export default function ProviderLimits() {
     };
 
     initializeData();
-  }, [fetchConnections, fetchQuota, page]);
+  }, [fetchConnections, fetchQuota, page, hasHydratedFilters]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -604,6 +607,24 @@ export default function ProviderLimits() {
       setViewMode(storedViewMode);
     }
     setHasHydratedViewMode(true);
+
+    try {
+      const rawFilters = window.localStorage.getItem(QUOTA_FILTERS_STORAGE_KEY);
+      if (rawFilters) {
+        const f = JSON.parse(rawFilters);
+        const urlProvider = searchParams?.get("provider");
+        if (!urlProvider && f.provider) _setProviderFilter(f.provider);
+        if (f.accountStatus) setAccountFilter(f.accountStatus);
+        if (f.quotaSortMode) setQuotaSortMode(f.quotaSortMode);
+        if (f.quotaSortModel) setQuotaSortModel(f.quotaSortModel);
+        if (typeof f.expiringFirst === "boolean") setExpiringFirst(f.expiringFirst);
+        if (f.pageSize) {
+          setPageSize(f.pageSize);
+          setCustomPageSizeInput(String(f.pageSize));
+        }
+      }
+    } catch { /* non-fatal: malformed storage */ }
+    setHasHydratedFilters(true);
   }, []);
 
   // Persist auto-refresh preference
@@ -617,6 +638,33 @@ export default function ProviderLimits() {
     if (typeof window === "undefined" || !hasHydratedViewMode) return;
     window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
   }, [viewMode, hasHydratedViewMode]);
+
+  // Persist quota filters
+  // ponytail: persists filter state in localStorage across tab switches; upgrade to server user profile sync if needed
+  useEffect(() => {
+    if (typeof window === "undefined" || !hasHydratedFilters) return;
+    try {
+      window.localStorage.setItem(
+        QUOTA_FILTERS_STORAGE_KEY,
+        JSON.stringify({
+          provider: providerFilter,
+          accountStatus: accountFilter,
+          quotaSortMode,
+          quotaSortModel,
+          expiringFirst,
+          pageSize,
+        }),
+      );
+    } catch { /* non-fatal */ }
+  }, [
+    providerFilter,
+    accountFilter,
+    quotaSortMode,
+    quotaSortModel,
+    expiringFirst,
+    pageSize,
+    hasHydratedFilters,
+  ]);
 
   // Load auto-ping per-connection configs
   useEffect(() => {

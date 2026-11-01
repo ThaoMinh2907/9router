@@ -16,8 +16,12 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 
-const src = fs.readFileSync(
+const candidatePaths = [
+  path.resolve("src/app/(dashboard)/dashboard/usage/components/ProviderLimits/index.js"),
   path.resolve("../src/app/(dashboard)/dashboard/usage/components/ProviderLimits/index.js"),
+];
+const src = fs.readFileSync(
+  candidatePaths.find((p) => fs.existsSync(p)) || candidatePaths[0],
   "utf-8"
 );
 
@@ -49,5 +53,11 @@ describe("ProviderLimits — URL ?provider= sync (#4217)", () => {
 
   it("sets ?provider in URL when a specific provider is selected", () => {
     expect(src).toContain('params.set("provider"');
+  });
+
+  it("persists quota filter state to localStorage across tab switches", () => {
+    expect(src).toContain('const QUOTA_FILTERS_STORAGE_KEY = "9router:quota-filters"');
+    expect(src).toContain("window.localStorage.getItem(QUOTA_FILTERS_STORAGE_KEY)");
+    expect(src).toContain("window.localStorage.setItem(\n        QUOTA_FILTERS_STORAGE_KEY");
   });
 });
